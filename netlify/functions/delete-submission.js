@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+const { createClient } = require("@supabase/supabase-js");
 
 // --- Initialize Supabase Client ---
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -14,11 +14,11 @@ const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Allow-Methods": "PATCH, OPTIONS",
+  "Access-Control-Allow-Methods": "DELETE, OPTIONS",
 };
 
 // --- Netlify Function Handler ---
-export async function handler(event, context) {
+exports.handler = async function (event, context) {
   // --- Handle preflight OPTIONS request ---
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -27,12 +27,11 @@ export async function handler(event, context) {
       body: "",
     };
   }
-
-  // --- Ensure the request is a PATCH request ---
-  if (event.httpMethod !== "PATCH") {
+  // --- Ensure the request is a DELETE request ---
+  if (event.httpMethod !== "DELETE") {
     return {
       statusCode: 405,
-      headers: corsHeaders,
+      headers: { Allow: "DELETE" },
       body: JSON.stringify({ error: `Method ${event.httpMethod} Not Allowed` }),
     };
   }
@@ -48,36 +47,19 @@ export async function handler(event, context) {
       };
     }
 
-    // --- Parse the request body ---
-    const { accepted } = JSON.parse(event.body);
-
-    // --- Validate Input ---
-    if (typeof accepted !== "boolean") {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({
-          error: "The 'accepted' field must be a boolean.",
-        }),
-      };
-    }
-
-    // --- Update Data in Database ---
-    const { data, error } = await supabaseClient
+    // --- Delete Data from Database ---
+    const { error } = await supabaseClient
       .from("submissions")
-      .update({ accepted })
-      .eq("id", id)
-      .select()
-      .single();
+      .delete()
+      .eq("id", id);
 
     // --- Handle Database Errors ---
     if (error) {
-      console.error("DATABASE UPDATE ERROR:", error);
+      console.error("DATABASE DELETE ERROR:", error);
       return {
         statusCode: 500,
-        headers: corsHeaders,
         body: JSON.stringify({
-          error: "Database operation failed.",
+          error: "Database query failed.",
           details: error.message,
         }),
       };
@@ -85,20 +67,14 @@ export async function handler(event, context) {
 
     // --- Return Success Response ---
     return {
-      statusCode: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      statusCode: 204, // No Content
+      headers: corsHeaders,
     };
   } catch (err) {
-    // --- Handle Unexpected Errors ---
     console.error("UNEXPECTED ERROR:", err);
     return {
       statusCode: 500,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        error: "An unexpected server error occurred.",
-        details: err.message,
-      }),
+      body: JSON.stringify({ error: "An unexpected server error occurred." }),
     };
   }
-}
+};
