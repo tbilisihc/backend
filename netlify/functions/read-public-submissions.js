@@ -47,7 +47,6 @@ exports.handler = async function (event, context) {
     const { data, error } = await supabaseClient
       .from("submissions")
       .select("name")
-      .eq("accepted", true) // Only fetch accepted submissions
       .order("created_at", { ascending: false });
 
     // --- Handle Database Errors ---
