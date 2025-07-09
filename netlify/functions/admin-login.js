@@ -1,23 +1,59 @@
-// This function is for authenticating the admin user.
-// It checks a provided password against a master password stored in environment variables.
+// --- Whitelist of allowed domains ---
+const allowedOrigins = [
+  "https://tbilisihc.andrinoff.com",
+  "https://tbilisi.hackclub.com",
+  "http://localhost:5173", // SvelteKit dev
+  "http://localhost:8888", // Netlify dev
+];
 
-// Using module.exports for maximum compatibility with Netlify's runtime environment.
 exports.handler = async function (event, context) {
-  // --- Allow only POST requests ---
+  const origin = event.headers.origin;
+  const corsHeaders = {};
+
+  if (allowedOrigins.includes(origin)) {
+    corsHeaders["Access-Control-Allow-Origin"] = origin;
+    corsHeaders["Access-Control-Allow-Headers"] = "Content-Type";
+  }
+
+  if (event.httpMethod === "OPTIONS") {
+    if (allowedOrigins.includes(origin)) {
+      return {
+        statusCode: 204,
+        headers: {
+          ...corsHeaders,
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+        },
+        body: "",
+      };
+    } else {
+      return { statusCode: 403, body: "Origin not allowed" };
+    }
+  }
+
+  if (!allowedOrigins.includes(origin)) {
+    return {
+      statusCode: 403,
+      body: JSON.stringify({
+        error: "Requests from this origin are not permitted.",
+      }),
+    };
+  }
+
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
+      headers: corsHeaders,
       body: JSON.stringify({ error: "Method Not Allowed" }),
     };
   }
 
-  // --- Get master password from environment variables ---
-  const MASTER_PASSWORD = process.env.MASTER_PASSWORD;
+  const { MASTER_PASSWORD } = process.env;
 
   if (!MASTER_PASSWORD) {
     console.error("MASTER_PASSWORD environment variable not set.");
     return {
       statusCode: 500,
+      headers: corsHeaders,
       body: JSON.stringify({ error: "Server configuration error." }),
     };
   }
@@ -25,24 +61,23 @@ exports.handler = async function (event, context) {
   try {
     const { password } = JSON.parse(event.body);
 
-    // --- Compare provided password with master password ---
     if (password === MASTER_PASSWORD) {
-      // --- Success ---
       return {
         statusCode: 200,
+        headers: corsHeaders,
         body: JSON.stringify({ message: "Login successful." }),
       };
     } else {
-      // --- Failure ---
       return {
-        statusCode: 401, // Unauthorized
+        statusCode: 401,
+        headers: corsHeaders,
         body: JSON.stringify({ error: "Incorrect password." }),
       };
     }
   } catch (error) {
-    console.error("Login function error:", error);
     return {
-      statusCode: 400, // Bad Request (e.g., malformed JSON)
+      statusCode: 400,
+      headers: corsHeaders,
       body: JSON.stringify({ error: "Invalid request." }),
     };
   }

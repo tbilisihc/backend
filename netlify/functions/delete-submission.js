@@ -1,43 +1,68 @@
 const { createClient } = require("@supabase/supabase-js");
 
+// --- Whitelist of allowed domains ---
+const allowedOrigins = [
+  "https://tbilisihc.andrinoff.com",
+  "https://tbilisi.hackclub.com",
+  "http://localhost:5173", // SvelteKit dev
+  "http://localhost:8888", // Netlify dev
+];
+
 // --- Initialize Supabase Client ---
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Server configuration error: Missing Supabase URL or Key.");
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error(
+    "Server configuration error: Missing Supabase URL or Service Key."
+  );
 }
 
-const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
-
-// --- Define CORS Headers ---
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Allow-Methods": "DELETE, OPTIONS",
-};
+const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
 
 // --- Netlify Function Handler ---
 exports.handler = async function (event, context) {
-  // --- Handle preflight OPTIONS request ---
+  const origin = event.headers.origin;
+  const corsHeaders = {};
+
+  if (allowedOrigins.includes(origin)) {
+    corsHeaders["Access-Control-Allow-Origin"] = origin;
+    corsHeaders["Access-Control-Allow-Headers"] = "Content-Type";
+  }
+
   if (event.httpMethod === "OPTIONS") {
+    if (allowedOrigins.includes(origin)) {
+      return {
+        statusCode: 204,
+        headers: {
+          ...corsHeaders,
+          "Access-Control-Allow-Methods": "DELETE, OPTIONS",
+        },
+        body: "",
+      };
+    } else {
+      return { statusCode: 403, body: "Origin not allowed" };
+    }
+  }
+
+  if (!allowedOrigins.includes(origin)) {
     return {
-      statusCode: 204,
-      headers: corsHeaders,
-      body: "",
+      statusCode: 403,
+      body: JSON.stringify({
+        error: "Requests from this origin are not permitted.",
+      }),
     };
   }
-  // --- Ensure the request is a DELETE request ---
+
   if (event.httpMethod !== "DELETE") {
     return {
       statusCode: 405,
-      headers: { Allow: "DELETE" },
+      headers: corsHeaders,
       body: JSON.stringify({ error: `Method ${event.httpMethod} Not Allowed` }),
     };
   }
 
   try {
-    // --- Get submission ID from the URL ---
     const id = event.path.split("/").pop();
     if (!id) {
       return {
@@ -47,17 +72,16 @@ exports.handler = async function (event, context) {
       };
     }
 
-    // --- Delete Data from Database ---
     const { error } = await supabaseClient
       .from("submissions")
       .delete()
       .eq("id", id);
 
-    // --- Handle Database Errors ---
     if (error) {
       console.error("DATABASE DELETE ERROR:", error);
       return {
         statusCode: 500,
+        headers: corsHeaders,
         body: JSON.stringify({
           error: "Database query failed.",
           details: error.message,
@@ -65,7 +89,6 @@ exports.handler = async function (event, context) {
       };
     }
 
-    // --- Return Success Response ---
     return {
       statusCode: 204, // No Content
       headers: corsHeaders,
@@ -74,6 +97,7 @@ exports.handler = async function (event, context) {
     console.error("UNEXPECTED ERROR:", err);
     return {
       statusCode: 500,
+      headers: corsHeaders,
       body: JSON.stringify({ error: "An unexpected server error occurred." }),
     };
   }

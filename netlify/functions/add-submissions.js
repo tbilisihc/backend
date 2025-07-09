@@ -1,5 +1,13 @@
 const { createClient } = require("@supabase/supabase-js");
 
+// --- Whitelist of allowed domains ---
+const allowedOrigins = [
+  "https://tbilisihc.andrinoff.com",
+  "https://tbilisi.hackclub.com",
+  "http://localhost:5173", // SvelteKit dev
+  "http://localhost:8888", // Netlify dev
+];
+
 // --- Initialize Supabase Client ---
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
@@ -10,23 +18,39 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 
-// --- Define CORS Headers ---
-// These headers allow requests from any origin.
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
 // --- Netlify Function Handler ---
-export async function handler(event, context) {
+exports.handler = async function (event, context) {
+  const origin = event.headers.origin;
+  const corsHeaders = {};
+
+  if (allowedOrigins.includes(origin)) {
+    corsHeaders["Access-Control-Allow-Origin"] = origin;
+    corsHeaders["Access-Control-Allow-Headers"] = "Content-Type";
+  }
+
   // --- Handle preflight OPTIONS request ---
-  // The browser sends this automatically before the actual POST request to check for CORS permissions.
   if (event.httpMethod === "OPTIONS") {
+    if (allowedOrigins.includes(origin)) {
+      return {
+        statusCode: 204,
+        headers: {
+          ...corsHeaders,
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+        },
+        body: "",
+      };
+    } else {
+      return { statusCode: 403, body: "Origin not allowed" };
+    }
+  }
+
+  // --- Block requests from non-allowed origins ---
+  if (!allowedOrigins.includes(origin)) {
     return {
-      statusCode: 204, // 204 No Content is standard for preflight responses
-      headers: corsHeaders,
-      body: "",
+      statusCode: 403,
+      body: JSON.stringify({
+        error: "Requests from this origin are not permitted.",
+      }),
     };
   }
 
@@ -34,63 +58,56 @@ export async function handler(event, context) {
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
-      headers: corsHeaders, // Include CORS headers in error responses
+      headers: corsHeaders,
       body: JSON.stringify({ error: `Method ${event.httpMethod} Not Allowed` }),
     };
   }
 
   try {
-    // --- Parse the request body ---
     const { name, email, phone } = JSON.parse(event.body);
 
-    // --- Validate Input ---
     if (!name || !email) {
       return {
         statusCode: 400,
-        headers: corsHeaders, // Include CORS headers
+        headers: corsHeaders,
         body: JSON.stringify({
           error: "The 'name' and 'email' fields are required.",
         }),
       };
     }
 
-    // --- Insert Data into Database ---
     const { data, error } = await supabaseClient
       .from("submissions")
       .insert({ name, phone, email })
       .select()
       .single();
 
-    // --- Handle Database Errors ---
     if (error) {
       console.error("DATABASE INSERT ERROR:", error);
       return {
         statusCode: 500,
-        headers: corsHeaders, // Include CORS headers
+        headers: corsHeaders,
         body: JSON.stringify({
           error: "Database operation failed.",
           details: error.message,
-          hint: error.hint,
         }),
       };
     }
 
-    // --- Return Success Response ---
     return {
       statusCode: 201,
-      headers: { ...corsHeaders, "Content-Type": "application/json" }, // Combine CORS and content-type headers
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
       body: JSON.stringify(data),
     };
   } catch (err) {
-    // --- Handle Unexpected Errors ---
     console.error("UNEXPECTED ERROR:", err);
     return {
       statusCode: 500,
-      headers: corsHeaders, // Include CORS headers
+      headers: corsHeaders,
       body: JSON.stringify({
         error: "An unexpected server error occurred.",
         details: err.message,
       }),
     };
   }
-}
+};

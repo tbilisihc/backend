@@ -1,37 +1,59 @@
 const { createClient } = require("@supabase/supabase-js");
 
+// --- Whitelist of allowed domains ---
+const allowedOrigins = [
+  "https://tbilisihc.andrinoff.com",
+  "https://tbilisi.hackclub.com",
+  "http://localhost:5173", // SvelteKit dev
+  "http://localhost:8888", // Netlify dev
+];
+
 // --- Initialize Supabase Client ---
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Server configuration error: Missing Supabase URL or Key.");
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error(
+    "Server configuration error: Missing Supabase URL or Service Key."
+  );
 }
 
-const supabaseClient = createClient(
-  supabaseUrl,
-  process.env.SUPABASE_SERVICE_KEY
-);
-
-// --- Define CORS Headers ---
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Allow-Methods": "PATCH, OPTIONS",
-};
+const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
 
 // --- Netlify Function Handler ---
 exports.handler = async function (event, context) {
-  // --- Handle preflight OPTIONS request ---
+  const origin = event.headers.origin;
+  const corsHeaders = {};
+
+  if (allowedOrigins.includes(origin)) {
+    corsHeaders["Access-Control-Allow-Origin"] = origin;
+    corsHeaders["Access-Control-Allow-Headers"] = "Content-Type";
+  }
+
   if (event.httpMethod === "OPTIONS") {
+    if (allowedOrigins.includes(origin)) {
+      return {
+        statusCode: 204,
+        headers: {
+          ...corsHeaders,
+          "Access-Control-Allow-Methods": "PATCH, OPTIONS",
+        },
+        body: "",
+      };
+    } else {
+      return { statusCode: 403, body: "Origin not allowed" };
+    }
+  }
+
+  if (!allowedOrigins.includes(origin)) {
     return {
-      statusCode: 204,
-      headers: corsHeaders,
-      body: "",
+      statusCode: 403,
+      body: JSON.stringify({
+        error: "Requests from this origin are not permitted.",
+      }),
     };
   }
 
-  // --- Ensure the request is a PATCH request ---
   if (event.httpMethod !== "PATCH") {
     return {
       statusCode: 405,
@@ -41,7 +63,6 @@ exports.handler = async function (event, context) {
   }
 
   try {
-    // --- Get submission ID from the URL ---
     const id = event.path.split("/").pop();
     if (!id) {
       return {
@@ -51,10 +72,7 @@ exports.handler = async function (event, context) {
       };
     }
 
-    // --- Parse the request body ---
     const { accepted } = JSON.parse(event.body);
-
-    // --- Validate Input ---
     if (typeof accepted !== "boolean") {
       return {
         statusCode: 400,
@@ -65,15 +83,12 @@ exports.handler = async function (event, context) {
       };
     }
 
-    // --- Update Data in Database ---
     const { data, error } = await supabaseClient
       .from("submissions")
       .update({ accepted })
       .eq("id", id)
-      .select()
-      .single();
+      .select();
 
-    // --- Handle Database Errors ---
     if (error) {
       console.error("DATABASE UPDATE ERROR:", error);
       return {
@@ -86,22 +101,25 @@ exports.handler = async function (event, context) {
       };
     }
 
-    // --- Return Success Response ---
+    if (!data || data.length === 0) {
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: "Submission not found." }),
+      };
+    }
+
     return {
       statusCode: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify(data[0]),
     };
   } catch (err) {
-    // --- Handle Unexpected Errors ---
     console.error("UNEXPECTED ERROR:", err);
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({
-        error: "An unexpected server error occurred.",
-        details: err.message,
-      }),
+      body: JSON.stringify({ error: "An unexpected server error occurred." }),
     };
   }
 };

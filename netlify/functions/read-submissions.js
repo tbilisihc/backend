@@ -1,55 +1,76 @@
 const { createClient } = require("@supabase/supabase-js");
 
+// --- Whitelist of allowed domains ---
+const allowedOrigins = [
+  "https://tbilisihc.andrinoff.com",
+  "https://tbilisi.hackclub.com",
+  "http://localhost:5173", // SvelteKit dev
+  "http://localhost:8888", // Netlify dev
+];
+
 // --- Initialize Supabase Client ---
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Server configuration error: Missing Supabase URL or Key.");
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error(
+    "Server configuration error: Missing Supabase URL or Service Key."
+  );
 }
 
-const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
 
 // --- Netlify Function Handler ---
 exports.handler = async function (event, context) {
-  // --- Ensure the request is a GET request ---
+  const origin = event.headers.origin;
+  const corsHeaders = {};
+
+  if (allowedOrigins.includes(origin)) {
+    corsHeaders["Access-Control-Allow-Origin"] = origin;
+  }
+
+  if (!allowedOrigins.includes(origin)) {
+    return {
+      statusCode: 403,
+      body: JSON.stringify({
+        error: "Requests from this origin are not permitted.",
+      }),
+    };
+  }
+
   if (event.httpMethod !== "GET") {
     return {
       statusCode: 405,
-      headers: { Allow: "GET" },
+      headers: { ...corsHeaders, Allow: "GET" },
       body: JSON.stringify({ error: `Method ${event.httpMethod} Not Allowed` }),
     };
   }
 
   try {
-    // --- Fetch data from the 'submissions' table ---
     const { data, error } = await supabaseClient
       .from("submissions")
       .select("id, email, phone, name, created_at, accepted")
       .order("created_at", { ascending: false });
 
-    // --- Handle Database Errors ---
     if (error) {
       console.error("DATABASE SELECT ERROR:", error);
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: "Database query failed.",
-          details: error.message,
-        }),
+        headers: corsHeaders,
+        body: JSON.stringify({ error: "Database query failed." }),
       };
     }
 
-    // --- Return Success Response ---
     return {
       statusCode: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
       body: JSON.stringify(data),
     };
   } catch (err) {
     console.error("UNEXPECTED ERROR:", err);
     return {
       statusCode: 500,
+      headers: corsHeaders,
       body: JSON.stringify({ error: "An unexpected server error occurred." }),
     };
   }
