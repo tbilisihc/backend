@@ -1,0 +1,24 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Backend for Tbilisi Hack Club",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tbilisihc/backend.git"
+  },
+  "keywords": [],
+  "author": "Joshua Steele <joshuasteele@hey.com>",
+  "license": "MIT",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/tbilisihc/backend/issues"
+  },
+  "homepage": "https://github.com/tbilisihc/backend#readme",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.50.4"
+  }
+}
